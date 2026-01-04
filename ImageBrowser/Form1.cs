@@ -17,11 +17,28 @@ namespace ImageBrowser
             _imageLabelText = imageLabel.Text;
             _dimensionsLabelText = dimensionsLabel.Text;
             _sizeLabelText = sizeLabel.Text;
+            _filePathValueText = filePathValue.Text;
+            _dateCreatedValueText = dateCreatedValue.Text;
+            _dateModifiedValueText = dateModifiedValue.Text;
+            _dateAccessedValueText = dateAccessedValue.Text;
+            _dpiValueText = dpiValue.Text;
+            _formatValueText = formatValue.Text;
+
+            _infoPanelVisible = false;
+            middleRow.ColumnStyles[1].Width = 0F;
+            middleRow.PerformLayout();
         }
 
+        // default label values
         private readonly string _imageLabelText;
         private readonly string _dimensionsLabelText;
         private readonly string _sizeLabelText;
+        private readonly string _filePathValueText;
+        private readonly string _dateCreatedValueText;
+        private readonly string _dateModifiedValueText;
+        private readonly string _dateAccessedValueText;
+        private readonly string _dpiValueText;
+        private readonly string _formatValueText;
 
         private string _currentFolder;
         private List<string> _imagesInCurrentFolder = new List<string>();
@@ -29,6 +46,8 @@ namespace ImageBrowser
         private Image _originalImage;
         private long _originalImageLength;
         private RotateFlipType _currentRotateFlip = RotateFlipType.RotateNoneFlipNone;
+
+        private bool _infoPanelVisible;
 
         private static readonly string[] ImageExtensions = new[]
         {
@@ -148,17 +167,48 @@ namespace ImageBrowser
             return $"{DecimalPlaces(size.ToString(), 1)} {SizeExtensions[sizeIndex]}";
         }
 
-        // todo
         private void UpdateImageAndLabels()
         {
             RegenerateImagesList();
 
+            // todo: check if this works
+            if (_imagesInCurrentFolder.Count == 0)
+            {
+                imageLabel.Text = _imageLabelText;
+                dimensionsLabel.Text = _dimensionsLabelText;
+                sizeLabel.Text = _sizeLabelText;
+                filePathValue.Text = _filePathValueText;
+                dateCreatedValue.Text = _dateCreatedValueText;
+                dateModifiedValue.Text = _dateModifiedValueText;
+                dateAccessedValue.Text = _dateAccessedValueText;
+                dpiValue.Text = _dpiValueText;
+                formatValue.Text = _formatValueText;
+
+                return;
+            }
+
             pictureBox.Image?.Dispose();
             pictureBox.Image = (Image)_originalImage.Clone();
 
-            imageLabel.Text = $"{Path.GetFileName(_imagesInCurrentFolder[_currentFolderIndex])} ({_currentFolderIndex + 1} of {_imagesInCurrentFolder.Count})";
+            string imagePath = _imagesInCurrentFolder[_currentFolderIndex];
+            string fileName = Path.GetFileName(imagePath);
+
+            imageLabel.Text = $"{fileName} ({_currentFolderIndex + 1} of {_imagesInCurrentFolder.Count})";
             dimensionsLabel.Text = $"{_originalImage.PhysicalDimension.Width} x {_originalImage.PhysicalDimension.Width}";
             sizeLabel.Text = GetBytesString(_originalImageLength);
+
+            filePathValue.Text = imagePath;
+
+            FileInfo fileInfo = new FileInfo(imagePath);
+            dateCreatedValue.Text = $"Created: {fileInfo.CreationTime}";
+            dateModifiedValue.Text = $"Modified: {fileInfo.LastWriteTime}";
+            dateAccessedValue.Text = $"Accessed: {fileInfo.LastAccessTime}";
+
+            string dpiString = pictureBox.Image.HorizontalResolution == pictureBox.Image.VerticalResolution
+                ? $"{pictureBox.Image.HorizontalResolution}dpi"
+                : $"{pictureBox.Image.HorizontalResolution}hdpi x {pictureBox.Image.VerticalResolution}vdpi";
+            dpiValue.Text = $"DPI: {dpiString}";    
+            formatValue.Text = $"Format: {pictureBox.Image.PixelFormat}";
         }
 
         private void ApplyCurrentTransform()
@@ -350,10 +400,11 @@ namespace ImageBrowser
 
         private void infoButton_Click(object sender, EventArgs e)
         {
-            int prevColumnSpan = mainTable.GetColumnSpan(pictureBox);
-            mainTable.SetColumnSpan(pictureBox, prevColumnSpan == 3 ? 2 : 3);
+            _infoPanelVisible = !_infoPanelVisible;
 
+            middleRow.ColumnStyles[1].Width = _infoPanelVisible ? 250F : 0F;
 
+            middleRow.PerformLayout();
         }
 
         private void previousButton_Click(object sender, EventArgs e)
