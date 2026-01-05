@@ -3,14 +3,13 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using System.Linq;
 using System.Windows.Forms;
 
 namespace ImageBrowser
 {
     public partial class ImageBrowser : Form
     {
-        public ImageBrowser()
+        public ImageBrowser(string[] args)
         {
             InitializeComponent();
 
@@ -27,6 +26,47 @@ namespace ImageBrowser
             _infoPanelVisible = false;
             middleRow.ColumnStyles[1].Width = 0F;
             middleRow.PerformLayout();
+
+            _copyButtonText = copyButton.Text;
+            _copyResetTimer = new Timer
+            {
+                Interval = 1000 // 1 second
+            };
+            _copyResetTimer.Tick += (s, e) =>
+            {
+                _copyResetTimer.Stop();
+                copyButton.Text = _copyButtonText;
+            };
+
+            zoomBox.SelectedIndex = 9;
+            zoomBar.Value = 9;
+
+            // arg handling
+            if (args != null && args.Length > 0)
+            {
+                var path = args[0];
+
+                if (File.Exists(path))
+                {
+                    try
+                    {
+                        LoadImageFromDisk(path);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show(
+                            $"Failed to load image:\n{ex.Message}",
+                            "Error",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Error
+                        );
+                    }
+                }
+            }
+
+            // can't get the PictureBox size right in the Design tab
+            // so this will have to do
+            UpdateZoom();
         }
 
         // default label values
@@ -41,79 +81,35 @@ namespace ImageBrowser
         private readonly string _formatValueText;
 
         private string _currentFolder;
-        private List<string> _imagesInCurrentFolder = new List<string>();
+        private readonly List<string> _imagesInCurrentFolder = new List<string>();
         private int _currentFolderIndex;
         private Image _originalImage;
         private long _originalImageLength;
-        private RotateFlipType _currentRotateFlip = RotateFlipType.RotateNoneFlipNone;
+
+        // rotation/flip data
+        private int _rotation = 0; // 0, 90, 180, 270
+        private bool _flipX = false;
+        private bool _flipY = false;
+
+        private readonly string _copyButtonText;
+        private readonly Timer _copyResetTimer;
 
         private bool _infoPanelVisible;
-
-        private static readonly string[] ImageExtensions = new[]
-        {
-            ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff"
-        };
-
-        private static readonly string[] SizeExtensions = new[]
-        {
-            "B", "KB", "MB", "GB", "TB"
-        };
-
-        private static bool IsImageFile(string path)
-        {
-            var ext = Path.GetExtension(path);
-            if (string.IsNullOrEmpty(ext))
-                return false;
-
-            return ImageExtensions.Contains(ext.ToLowerInvariant());
-        }
-
-        private static bool IsValidImageByHeader(string path)
-        {
-            try
-            {
-                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read))
-                {
-                    using (var img = Image.FromStream(fs, useEmbeddedColorManagement: false, validateImageData: false))
-                    {
-                        // If this succeeds, it's at least structurally a valid image
-                        return true;
-                    }
-                }
-            }
-            catch
-            {
-                return false;
-            }
-        }
 
         private void UpdateOriginalImage()
         {
             string path = _imagesInCurrentFolder[_currentFolderIndex];
-            if (!File.Exists(path))
-            {
-                Console.WriteLine($"{path} does not exist on disk - cannot regenerate image");
-                return;
-            }
+            if (!File.Exists(path)) return;
 
             _originalImage?.Dispose();
             _originalImage = Image.FromFile(path);
             _originalImageLength = new FileInfo(path).Length;
-            _currentRotateFlip = RotateFlipType.RotateNoneFlipNone;
         }
 
         private void SetCurrentImageIndex(int value)
         {
-            if (_imagesInCurrentFolder.Count == 0)
-            {
-                Console.WriteLine("Cannot set current image index - images in current folder list is empty");
-                return;
-            }
-            if (value > _imagesInCurrentFolder.Count - 1)
-            {
-                Console.WriteLine($"Cannot set current image index - {nameof(value)} {value} is greater than {nameof(_imagesInCurrentFolder.Count)} {_imagesInCurrentFolder.Count}");
-                return;
-            }
+            if (_imagesInCurrentFolder.Count == 0
+                || value > _imagesInCurrentFolder.Count - 1) return;
 
             _currentFolderIndex = value;
 
@@ -125,11 +121,8 @@ namespace ImageBrowser
         private void ModifyCurrentImageIndex(int amount)
         {
             int count = _imagesInCurrentFolder.Count;
-            if (count == 0)
-            {
-                Console.WriteLine($"{nameof(_imagesInCurrentFolder.Count)} is 0 - cannot perform modulo operation in {nameof(ModifyCurrentImageIndex)}");
-                return;
-            }
+            if (count == 0) return;
+
             SetCurrentImageIndex((_currentFolderIndex + amount + count) % count);
         }
 
@@ -139,32 +132,11 @@ namespace ImageBrowser
             foreach (string file in Directory.EnumerateFiles(_currentFolder))
             {
                 // if file is image, read from file
-                if (IsImageFile(file) && IsValidImageByHeader(file))
+                if (ImageUtils.IsImageFile(file) && ImageUtils.IsValidImageByHeader(file))
                 {
                     _imagesInCurrentFolder.Add(file);
                 }
             }
-        }
-
-        private string DecimalPlaces(string numString, int decimalPlaces)
-        {
-            int decimalIndex = numString.IndexOf('.');
-            if (decimalIndex == -1) return numString;
-
-            return numString.Substring(0, decimalIndex + decimalPlaces + 1);
-        }
-
-        private string GetBytesString(long bytes)
-        {
-            double size = bytes;
-            int sizeIndex = 0;
-            while (size > 1024 && sizeIndex < SizeExtensions.Length - 1)
-            {
-                size /= 1024;
-                sizeIndex++;
-            }
-
-            return $"{DecimalPlaces(size.ToString(), 1)} {SizeExtensions[sizeIndex]}";
         }
 
         private void UpdateImageAndLabels()
@@ -193,9 +165,9 @@ namespace ImageBrowser
             string imagePath = _imagesInCurrentFolder[_currentFolderIndex];
             string fileName = Path.GetFileName(imagePath);
 
-            imageLabel.Text = $"{fileName} ({_currentFolderIndex + 1} of {_imagesInCurrentFolder.Count})";
+            TitleUtils.SetTruncatedImageLabel(imageLabel, fileName, _currentFolderIndex, _imagesInCurrentFolder.Count);
             dimensionsLabel.Text = $"{_originalImage.PhysicalDimension.Width} x {_originalImage.PhysicalDimension.Width}";
-            sizeLabel.Text = GetBytesString(_originalImageLength);
+            sizeLabel.Text = SizeUtils.GetBytesString(_originalImageLength);
 
             filePathValue.Text = imagePath;
 
@@ -218,43 +190,80 @@ namespace ImageBrowser
             pictureBox.Image?.Dispose();
 
             Image transformed = (Image)_originalImage.Clone();
-            transformed.RotateFlip(_currentRotateFlip);
+            transformed.RotateFlip(ImageUtils.GetRotateFlipType(_rotation, _flipX, _flipY));
 
             pictureBox.Image = transformed;
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (_imagesInCurrentFolder.Count != 0)
+            {
+                switch (keyData)
+                {
+                    case Keys.Left:
+                        previousButton_Click(previousButton, EventArgs.Empty);
+                        return true; // mark as handled
+                    case Keys.Right:
+                        nextButton_Click(nextButton, EventArgs.Empty);
+                        return true;
+                }
+            }
+
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        private int _zoom = 100;
+        private float _zoomScale = 1.0F;
+
+        private void UpdateZoom()
+        {
+            string zoomString = zoomBox.Items[zoomBar.Value].ToString();
+            int zoom = -1;
+            int.TryParse(zoomString.Substring(0, zoomString.Length - 1), out zoom);
+            if (zoom != -1)
+            {
+                _zoom = zoom;
+                _zoomScale = zoom / 100.0F;
+            }
+
+            zoomBox.Text = $"{_zoom}%";
+
+            pictureBox.Size = new Size(
+                Math.Max(1, (int)Math.Round(pictureBoxPanel.Width * _zoomScale)),
+                Math.Max(1, (int)Math.Round(pictureBoxPanel.Height * _zoomScale))
+            );
+
+            int x = 0;
+            int y = 0;
+
+            // If the image is smaller than the panel, center it
+            if (pictureBox.Width < pictureBoxPanel.ClientSize.Width)
+            {
+                x = (pictureBoxPanel.ClientSize.Width - pictureBox.Width) / 2;
+            }
+
+            if (pictureBox.Height < pictureBoxPanel.ClientSize.Height)
+            {
+                y = (pictureBoxPanel.ClientSize.Height - pictureBox.Height) / 2;
+            }
+
+            // If the image is larger, x/y will stay 0 and the scrollbars take over
+            pictureBox.Location = new Point(x, y);
+        }
+
+        private void LoadImageFromDisk(string path)
+        {
+            _currentFolder = Path.GetDirectoryName(path);
+            RegenerateImagesList();
+            SetCurrentImageIndex(_imagesInCurrentFolder.IndexOf(path));
         }
 
         private void rotateButton_Click(object sender, EventArgs e)
         {
             if (_originalImage == null) return;
 
-            switch (_currentRotateFlip)
-            {
-                case RotateFlipType.RotateNoneFlipNone:
-                    _currentRotateFlip = RotateFlipType.Rotate90FlipNone;
-                    break;
-                case RotateFlipType.Rotate90FlipNone:
-                    _currentRotateFlip = RotateFlipType.Rotate180FlipNone;
-                    break;
-                case RotateFlipType.Rotate180FlipNone:
-                    _currentRotateFlip = RotateFlipType.Rotate270FlipNone;
-                    break;
-                case RotateFlipType.Rotate270FlipNone:
-                    _currentRotateFlip = RotateFlipType.RotateNoneFlipNone;
-                    break;
-
-                case RotateFlipType.RotateNoneFlipX:
-                    _currentRotateFlip = RotateFlipType.RotateNoneFlipX;
-                    break;
-                case RotateFlipType.Rotate90FlipX:
-                    _currentRotateFlip = RotateFlipType.Rotate90FlipX;
-                    break;
-                case RotateFlipType.Rotate180FlipX:
-                    _currentRotateFlip = RotateFlipType.Rotate180FlipX;
-                    break;
-                case RotateFlipType.Rotate270FlipX:
-                    _currentRotateFlip = RotateFlipType.Rotate270FlipX;
-                    break;
-            }
+            _rotation = (_rotation + 90) % 360;
 
             ApplyCurrentTransform();
         }
@@ -263,34 +272,7 @@ namespace ImageBrowser
         {
             if (_originalImage == null) return;
 
-            switch (_currentRotateFlip)
-            {
-                case RotateFlipType.RotateNoneFlipNone:
-                    _currentRotateFlip = RotateFlipType.RotateNoneFlipX;
-                    break;
-                case RotateFlipType.Rotate90FlipNone:
-                    _currentRotateFlip = RotateFlipType.Rotate90FlipX;
-                    break;
-                case RotateFlipType.Rotate180FlipNone:
-                    _currentRotateFlip = RotateFlipType.Rotate180FlipX;
-                    break;
-                case RotateFlipType.Rotate270FlipNone:
-                    _currentRotateFlip = RotateFlipType.Rotate270FlipX;
-                    break;
-
-                case RotateFlipType.RotateNoneFlipX:
-                    _currentRotateFlip = RotateFlipType.RotateNoneFlipNone;
-                    break;
-                case RotateFlipType.Rotate90FlipX:
-                    _currentRotateFlip = RotateFlipType.Rotate90FlipNone;
-                    break;
-                case RotateFlipType.Rotate180FlipX:
-                    _currentRotateFlip = RotateFlipType.Rotate180FlipNone;
-                    break;
-                case RotateFlipType.Rotate270FlipX:
-                    _currentRotateFlip = RotateFlipType.Rotate270FlipNone;
-                    break;
-            }
+            _flipX = !_flipX;
 
             ApplyCurrentTransform();
         }
@@ -299,34 +281,7 @@ namespace ImageBrowser
         {
             if (_originalImage == null) return;
 
-            switch (_currentRotateFlip)
-            {
-                case RotateFlipType.RotateNoneFlipNone:
-                    _currentRotateFlip = RotateFlipType.RotateNoneFlipY;
-                    break;
-                case RotateFlipType.Rotate90FlipNone:
-                    _currentRotateFlip = RotateFlipType.Rotate90FlipY;
-                    break;
-                case RotateFlipType.Rotate180FlipNone:
-                    _currentRotateFlip = RotateFlipType.Rotate180FlipY;
-                    break;
-                case RotateFlipType.Rotate270FlipNone:
-                    _currentRotateFlip = RotateFlipType.Rotate270FlipY;
-                    break;
-
-                case RotateFlipType.RotateNoneFlipY:
-                    _currentRotateFlip = RotateFlipType.RotateNoneFlipNone;
-                    break;
-                case RotateFlipType.Rotate90FlipY:
-                    _currentRotateFlip = RotateFlipType.Rotate90FlipNone;
-                    break;
-                case RotateFlipType.Rotate180FlipY:
-                    _currentRotateFlip = RotateFlipType.Rotate180FlipNone;
-                    break;
-                case RotateFlipType.Rotate270FlipY:
-                    _currentRotateFlip = RotateFlipType.Rotate270FlipNone;
-                    break;
-            }
+            _flipY = !_flipY;
 
             ApplyCurrentTransform();
         }
@@ -335,7 +290,9 @@ namespace ImageBrowser
         {
             if (_originalImage == null) return;
 
-            _currentRotateFlip = RotateFlipType.RotateNoneFlipNone;
+            _rotation = 0;
+            _flipX = false;
+            _flipY = false;
 
             ApplyCurrentTransform();
         }
@@ -355,46 +312,41 @@ namespace ImageBrowser
             // regenerate list of images in current folder
             RegenerateImagesList();
 
-            // revert to default names/no image if no images will be left afterwards
-            if (_imagesInCurrentFolder.Count == 1)
+            if (_imagesInCurrentFolder.Count > 0)
             {
+                // current folder index bounds check
+                _currentFolderIndex = MathUtils.Clamp(_currentFolderIndex, 0, _imagesInCurrentFolder.Count - 1);
+
+                SetCurrentImageIndex(_currentFolderIndex);
+            }
+            else
+            {
+                // revert to default names/no image if no images will be left afterwards
                 _currentFolderIndex = 0;
 
                 imageLabel.Text = _imageLabelText;
                 dimensionsLabel.Text = _dimensionsLabelText;
                 sizeLabel.Text = _sizeLabelText;
             }
-            else
-            {
-                // ensure _currentFolderIndex is not out of bounds
-                if (_currentFolderIndex < 0) _currentFolderIndex = 0;
-                if (_currentFolderIndex > _imagesInCurrentFolder.Count - 1) _currentFolderIndex = _imagesInCurrentFolder.Count - 1;
-
-                SetCurrentImageIndex(_currentFolderIndex);
-            }
         }
 
-        private void folderButton_Click(object sender, EventArgs e)
+        private void copyButton_Click(object sender, EventArgs e)
         {
-            if (folderBrowserDialog1.ShowDialog() == DialogResult.OK)
-            {
-                _currentFolder = folderBrowserDialog1.SelectedPath;
+            if (_originalImage == null) return;
 
-                RegenerateImagesList();
+            Clipboard.SetImage(_originalImage);
+            copyButton.Text = "Copied!";
 
-                SetCurrentImageIndex(0);
-            }
+            // 1 second later: reset button text
+            _copyResetTimer.Stop(); // in case it's already running
+            _copyResetTimer.Start();
         }
 
         private void pictureButton_Click(object sender, EventArgs e)
         {
             if (openFileDialog1.ShowDialog() == DialogResult.OK)
             {
-                _currentFolder = Path.GetDirectoryName(openFileDialog1.FileName);
-
-                RegenerateImagesList();
-
-                SetCurrentImageIndex(_imagesInCurrentFolder.IndexOf(openFileDialog1.FileName));
+                LoadImageFromDisk(openFileDialog1.FileName);
             }
         }
 
@@ -405,6 +357,8 @@ namespace ImageBrowser
             middleRow.ColumnStyles[1].Width = _infoPanelVisible ? 250F : 0F;
 
             middleRow.PerformLayout();
+
+            UpdateZoom();
         }
 
         private void previousButton_Click(object sender, EventArgs e)
@@ -440,6 +394,47 @@ namespace ImageBrowser
             {
                 Process.Start("explorer.exe", folderPath);
             }
+        }
+
+        private void ImageBrowser_Resize(object sender, EventArgs e)
+        {
+            if (_imagesInCurrentFolder.Count != 0)
+            {
+                string imagePath = _imagesInCurrentFolder[_currentFolderIndex];
+                string fileName = Path.GetFileName(imagePath);
+
+                TitleUtils.SetTruncatedImageLabel(imageLabel, fileName, _currentFolderIndex, _imagesInCurrentFolder.Count);
+            }
+
+            UpdateZoom();
+        }
+
+        private void zoomInButton_Click(object sender, EventArgs e)
+        {
+            zoomBar.Value = Math.Min(zoomBar.Value + 1, zoomBar.Maximum);
+
+            UpdateZoom();
+        }
+
+        private void zoomOutButton_Click(object sender, EventArgs e)
+        {
+            zoomBar.Value = Math.Max(zoomBar.Value - 1, zoomBar.Minimum);
+
+            UpdateZoom();
+        }
+
+        private void zoomBox_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            zoomBar.Value = zoomBox.SelectedIndex;
+
+            UpdateZoom();
+        }
+
+        private void zoomBar_Scroll(object sender, EventArgs e)
+        {
+            zoomBox.SelectedIndex = zoomBar.Value;
+
+            UpdateZoom();
         }
     }
 }
