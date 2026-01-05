@@ -46,11 +46,11 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Form1.cs">
+    <Compile Include="ImageBrowser.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Form1.Designer.cs">
-      <DependentUpon>Form1.cs</DependentUpon>
+    <Compile Include="ImageBrowser.Designer.cs">
+      <DependentUpon>ImageBrowser.cs</DependentUpon>
     </Compile>
     <Compile Include="ImageUtils.cs" />
     <Compile Include="MathUtils.cs" />
@@ -59,8 +59,8 @@
     <Compile Include="RecycleBinHelper.cs" />
     <Compile Include="SizeUtils.cs" />
     <Compile Include="TitleUtils.cs" />
-    <EmbeddedResource Include="Form1.resx">
-      <DependentUpon>Form1.cs</DependentUpon>
+    <EmbeddedResource Include="ImageBrowser.resx">
+      <DependentUpon>ImageBrowser.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>
