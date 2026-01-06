@@ -63,10 +63,6 @@ namespace ImageBrowser
                     }
                 }
             }
-
-            // can't get the PictureBox size right in the Design tab
-            // so this will have to do
-            UpdateZoom();
         }
 
         // default label values
@@ -90,6 +86,9 @@ namespace ImageBrowser
         private int _rotation = 0; // 0, 90, 180, 270
         private bool _flipX = false;
         private bool _flipY = false;
+
+        private int _zoom = 100;
+        private float _zoomScale = 1.0F;
 
         private readonly string _copyButtonText;
         private readonly Timer _copyResetTimer;
@@ -212,9 +211,6 @@ namespace ImageBrowser
 
             return base.ProcessCmdKey(ref msg, keyData);
         }
-
-        private int _zoom = 100;
-        private float _zoomScale = 1.0F;
 
         private void UpdateZoom()
         {
@@ -396,19 +392,6 @@ namespace ImageBrowser
             }
         }
 
-        private void ImageBrowser_Resize(object sender, EventArgs e)
-        {
-            if (_imagesInCurrentFolder.Count != 0)
-            {
-                string imagePath = _imagesInCurrentFolder[_currentFolderIndex];
-                string fileName = Path.GetFileName(imagePath);
-
-                TitleUtils.SetTruncatedImageLabel(imageLabel, fileName, _currentFolderIndex, _imagesInCurrentFolder.Count);
-            }
-
-            UpdateZoom();
-        }
-
         private void zoomInButton_Click(object sender, EventArgs e)
         {
             zoomBar.Value = Math.Min(zoomBar.Value + 1, zoomBar.Maximum);
@@ -433,6 +416,19 @@ namespace ImageBrowser
         private void zoomBar_Scroll(object sender, EventArgs e)
         {
             zoomBox.SelectedIndex = zoomBar.Value;
+
+            UpdateZoom();
+        }
+
+        private void ImageBrowser_Resize(object sender, EventArgs e)
+        {
+            if (_imagesInCurrentFolder.Count != 0)
+            {
+                string imagePath = _imagesInCurrentFolder[_currentFolderIndex];
+                string fileName = Path.GetFileName(imagePath);
+
+                TitleUtils.SetTruncatedImageLabel(imageLabel, fileName, _currentFolderIndex, _imagesInCurrentFolder.Count);
+            }
 
             UpdateZoom();
         }
